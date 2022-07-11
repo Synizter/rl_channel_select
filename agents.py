@@ -1,7 +1,9 @@
 import numpy as np
 import mne_dataset
-from processor import epochs
-
+from processor import *
+from sklearn.model_selection import train_test_split
+import tensorflow as tf
+from model_set import Custom1DCNN
 class QLearnAgent(object):
     def __init__(self, lr, gamma, n_actions, n_states, epsilon, decay = 0.999):
         self.lr = lr
@@ -35,7 +37,6 @@ class QLearnAgent(object):
         self.Q[(state, action)] += self.lr * (reward + self.gamma * self.Q[(next_state, action)])
 
 
-
 import itertools
 from collections import Counter
 
@@ -65,7 +66,8 @@ ch_depth_3 = []
 for i,t in enumerate(ch3):
     x, y = t #a = ch tuple, b = last action added
     a, b = x # c = first ch, d = 2nd ch
-    ch_depth_3.append((a, b, y))
+    if b != y:
+        ch_depth_3.append((a, b, y))
 
 ch_depth_4 = []
 for i,t in enumerate(ch4):
@@ -86,7 +88,6 @@ ch_map = {'FC5': 0, 'FC3': 1, 'FC1': 2, 'FCZ': 3, 'FC2': 4, 'FC4': 5, 'FC6': 6, 
 
 
 
-
 actions = right_ch.copy()
 states = (left_ch + ch_depth_2 + ch_depth_3 + ch_depth_4).copy()
 
@@ -96,7 +97,7 @@ q = np.zeros((len(states), len(actions)))
 
 
 #TRAIN PARAM
-learning_decay = 0.99
+learning_decay = 0.99999
 alpha = 1e-3 #learning rate
 gamma = 0.4 #discount factor
 epsilon = 1 #explor/exploit control
@@ -124,31 +125,133 @@ def get_ch_location(info):
     get tuple of ch name in string
     return list of channel location index from ch map
     '''
-    tmp = []
-    for ch in info:
-        tmp.append(ch_map[ch])
-    return tmp
+    if not isinstance(info, tuple):
+        return ch_map[info]
+    else:
+        tmp = []
+        for ch in info:
+            tmp.append(ch_map[ch])
+        return tmp
 
 def extract_target_ch(raws, target_ch:list):
     return raws[:,:,target_ch]
 
-states_info = qinfo_encode(states)
-actions_info =  qinfo_encode(actions)
+
+def jump_to_state(state, action):
+    if not isinstance(state, tuple):
+        target = (state, action)
+    else:
+        target = (*state, action)
+    return list(states_info.keys())[list(states_info.values()).index(target)]
+
+DEBUG = 2
 
 
-raws,labels = mne_dataset.get(subj = [i for i in range(1, 30 + 1)], runs = [3,4,7,8,11,12])
 
-t = qinfo_decode(1331, states_info)
-t = get_ch_location(t)
-t = extract_target_ch(raws, t)
-print(t.shape)
 
-for i in range(epochs):
-    done = False
-    total_reward = 0
-    episode_reward = []
-    reward_trajectory = []
+if DEBUG == 2:
+    states_info = qinfo_encode(states)
+    actions_info =  qinfo_encode(actions)
+    exclude = [38, 88, 89, 92, 100, 104]
+    subjs = [s for s in range(1,30 + 1) if s not in exclude]
+    #Task 1 and 2, MI vs MM of left and righht fist
+    runs = [3,4, 7,8, 13,14]
+    raws = load_data(subjs, runs, max_duration = 120)
+    x,y = epochs(raws)
+    y = to_one_hot(y[:,-1])
 
-    while not done:
-        break
+    try:
+        x_train, x_val, y_train, y_val = train_test_split(raws, y, test_size=.2, stratify=y, random_state=42)
+        print(x_train.shape, y_train.shape, x_val.shape, y_val.shape)
+    except ValueError as e:
+        print(e)
 
+
+    # # t = qinfo_decode(1331, states_info)
+    # # t = get_ch_location(t)
+    # # t = extract_target_ch(raws, t)
+
+    #FORCE USING GPU
+    if tf.config.experimental.list_physical_devices('GPU'):
+        device = tf.test.gpu_device_name()
+    else:
+        device = 'CPU:0'
+            
+    for i in range(epochs):
+        done = False
+        total_reward = 0
+        episode_reward = np.zeros(epochs)
+        reward_trajectory = []
+
+        #reset env, randomly select first channel (state 0-5)
+        state_index = np.random.randint(0, 6)
+        state = qinfo_decode(state_index, states_info)
+        
+        while not done:
+            
+            if np.random.uniform(0, 1) < epsilon:
+                action_index = np.random.randint(0, 6)
+            else:
+                action_index = np.argmax(q[state])
+            action = actions_info[action_index]
+            # Take action ----------------------------------------------------------
+            
+            #terminate if total ch is larger than 4
+            if len((*state, action)) > 4:
+                done = True
+            elif action in list(state):
+                reward = -99
+                done = True
+            else:
+                next_state = 0
+                reward = 0
+                
+                #extract data
+                if 0 <= state_index <= 6:
+                   target_ch = get_ch_location((state, action))
+                else: 
+                    target_ch = get_ch_location((*state, action))
+                temp_x_train = extract_target_ch(x_train, target_ch)
+                temp_x_val = extract_target_ch(x_val, target_ch)
+                
+                # print(temp_x_train.shape, y_train.shape, temp_x_val.shape, y_val.shape)
+                
+                
+                break
+                with tf.device(device):
+                    opt = tf.keras.optimizers.Adam(learning_rate = 1e-3)
+                    loss = tf.keras.losses.CategoricalCrossentropy()
+                    model = Custom1DCNN(inp_shape=(temp_x_train.shape[1], temp_x_train.shape[2]), nbr_classes=y_train.shape[1])
+                    model.compile(optimizer = opt, loss=loss , metrics=['accuracy'])
+                    hist = model.fit(temp_x_train, y_train, 
+                                     batch_size= 64, epochs = 50, verbose = False, 
+                                     validation_data = (temp_x_val,y_val))
+                    testLoss, testAcc = model.evaluate(x_val, y_val)
+                
+                #get reward and next state after performing an action
+                reward = testAcc
+                episode_reward[i] += reward
+                #decode next
+                next_state = jump_to_state(state, action) 
+                
+                #UPDATE Q
+                q_value = q[state_index,action_index]
+                max_q = np.max(q[next_state])
+                
+                max_val = np.max(q[next_state])
+                new_q  = (1 - alpha) * q_value + alpha * (reward + gamma * max_val)
+                q[state, action] = new_q
+                
+                state = states_info[next_state]
+                state_index = next_state
+                
+            
+            #decay the epsilon
+            if epsilon > 0.01:
+                epsilon *= learning_decay
+            else:
+                epsilon = epsilon
+            # Done taking action ----------------------------------------------------------
+
+np.save('episode_reward',episode_reward)
+np.save('qtable', q)

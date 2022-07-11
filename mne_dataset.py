@@ -22,7 +22,7 @@ def get(subj = None, runs = None, smote=False, chs = None):
 
 
     #global normalize
-    x = normallize(x)
+    x = normalize(x)
 
     if smote:
         x_reshaped = np.reshape(x, (x.shape[0], x.shape[1] * x.shape[2]))

@@ -119,7 +119,7 @@ def epochs(raws: List[BaseRaw], exclude_base: bool = False, normal_by_sub = Fals
             # print(ep.get_data().shape, ep.events.shape)
             data = ep.get_data()
             if normal_by_sub:
-                normallize(data)
+                normalize(data)
             xs.append(eeg_tensor_format(data))
             ys.append(ep.events)            
 
@@ -138,7 +138,7 @@ def to_one_hot(y, by_sub=False):
     return tf.keras.utils.to_categorical(new_array)
 
 
-def normallize(x:np.ndarray):
+def normalize(x:np.ndarray):
     reshape_x = np.reshape(x, (x.shape[0], x.shape[1] * x.shape[2]))
     norm = minmax_scale(reshape_x, axis = 1)
     return np.reshape(norm, (x.shape[0], x.shape[1], x.shape[2]))
