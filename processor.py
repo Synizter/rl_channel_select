@@ -171,8 +171,9 @@ if __name__ == "__main__":
     subject = [1,2]
     runs = [3,4,5]
     
-    d = load_data(subjects=subject, runs=runs, max_duration=120, chs = ['FP1', 'FP2'])
-    print(d[0][0].info['ch_names'])
+    # d = load_data(subjects=subject, runs=runs, max_duration=120, chs = ['FP1', 'FP2'])
+    d = load_data(subjects=subject, runs=runs, max_duration=120)
+    ch_info = (d[0][0].info['ch_names'])
     
     X, y = epochs(d, tmax=1)
     y = to_one_hot(y[:,-1])

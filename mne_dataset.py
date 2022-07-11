@@ -2,7 +2,7 @@ import numpy as np
 from processor import *
 
 
-def get(subj = None, runs = None, smote=False):
+def get(subj = None, runs = None, smote=False, chs = None):
     exclude = [38, 88, 89, 92, 100, 104]
     if subj is None:
         subjs = [s for s in range(1,109 + 1) if s not in exclude]
@@ -12,11 +12,12 @@ def get(subj = None, runs = None, smote=False):
     if runs == None:
         runs = [i for i in range(3, 14 + 1)]
 
-
     # ['FC5', 'FC3', 'FC1', 'FCZ', 'FC2', 'FC4', 'FC6', 'C5', 'C3', 'C1', 'CZ', 'C2', 'C4', 'C6', 'CP5', 'CP3', 'CP1', 'CPZ', 'CP2', 'CP4', 'CP6', 'FP1', 'FPZ', 'FP2', 'AF7', 'AF3', 'AFZ', 'AF4', 'AF8', 'F7', 'F5', 'F3', 'F1', 'FZ', 'F2', 'F4', 'F6', 'F8', 'FT7', 'FT8', 'T7', 'T8', 'T9', 'T10', 'TP7', 'TP8', 'P7', 'P5', 'P3', 'P1', 'PZ', 'P2', 'P4', 'P6', 'P8', 'PO7', 'PO3', 'POZ', 'PO4', 'PO8', 'O1', 'OZ', 'O2', 'IZ']
-    chs = ['C3', 'C4', 'CZ', 'F3', 'F4', 'F7', 'F8', 'FP1', 'FP2', 'FZ', 'O1', 'O2', 'OZ', 'P3', 'P4', 'PZ']
-    raws = load_data(subjs, runs, max_duration = 120, chs = chs )
-    x,y = epochs(raws)
+    if chs == None:
+        raws = load_data(subjs, runs, max_duration = 120)
+    else:
+        raws = load_data(subjs, runs, max_duration = 120, chs = chs )
+    x,y = epochs(raws, tmax = 1)
     y = to_one_hot(y[:,-1])
 
 
@@ -37,7 +38,7 @@ def get(subj = None, runs = None, smote=False):
         x = x_train_smote_raw
         y = y_train
 
-    return np.expand_dims(x, axis = 1), y    
+    return x, y    
 
 if __name__ =="__main__":
     x, y = get(smote=True, runs = [3,4, 7,8, 13,14])
