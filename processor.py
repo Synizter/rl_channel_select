@@ -26,6 +26,7 @@ from typing import List, Tuple
 
 from sklearn.preprocessing import minmax_scale
 import tensorflow as tf
+from sklearn.model_selection import train_test_split
 
 def rename_ch(raw:BaseRaw)-> BaseRaw:
     old_ch_name = raw.ch_names
@@ -146,7 +147,7 @@ def normalize(x:np.ndarray):
 def eeg_tensor_format(x:np.ndarray)->np.ndarray:
     return np.transpose(x, (0,2,1)).astype(np.float64)
 
-def train_test_split(x, y, perc):
+def train_test_split2(x, y, perc):
     from numpy.random import default_rng
     rng = default_rng()
     test_x = list()
@@ -168,14 +169,29 @@ def train_test_split(x, y, perc):
 
 
 if __name__ == "__main__":
-    subject = [1,2]
-    runs = [3,4,5]
+    # subject = [1,2]
+    # runs = [3,4,5]
     
-    # d = load_data(subjects=subject, runs=runs, max_duration=120, chs = ['FP1', 'FP2'])
-    d = load_data(subjects=subject, runs=runs, max_duration=120)
-    ch_info = (d[0][0].info['ch_names'])
+    # # d = load_data(subjects=subject, runs=runs, max_duration=120, chs = ['FP1', 'FP2'])
+    # d = load_data(subjects=subject, runs=runs, max_duration=120)
+    # ch_info = (d[0][0].info['ch_names'])
     
-    X, y = epochs(d, tmax=1)
+    # X, y = epochs(d, tmax=1)
+    # y = to_one_hot(y[:,-1])
+    # print(X.shape, y.shape)
+    exclude = [38, 88, 89, 92, 100, 104]
+    subjs = [s for s in range(1,5 + 1) if s not in exclude]
+    #Task 1 and 2, MI vs MM of left and righht fist
+    runs = [3,4, 7,8, 13,14]
+    raws = load_data(subjs, runs, max_duration = 120)
+    
+    x,y = epochs(raws)
     y = to_one_hot(y[:,-1])
-    print(X.shape, y.shape)
+    x = normalize(x)
+    print(x.shape, y.shape)
 
+    try:
+        x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=.2, stratify=y, random_state=42)
+        print(x_train.shape, y_train.shape, x_val.shape, y_val.shape)
+    except ValueError as e:
+        print(e)

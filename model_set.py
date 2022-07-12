@@ -65,3 +65,6 @@ class Custom1DCNN(tf.keras.Model):
         return tf.keras.Model(inputs=[x],  outputs=self.call(x))
 
 
+if __name__ =="__main__":
+    t = Custom1DCNN(input_shape=(641,3), output_classes=9)
+    t.model().summary()

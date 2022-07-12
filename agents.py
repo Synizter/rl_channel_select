@@ -1,3 +1,6 @@
+from silence_tensorflow import silence_tensorflow
+silence_tensorflow()
+
 import numpy as np
 import mne_dataset
 from processor import *
@@ -35,7 +38,6 @@ class QLearnAgent(object):
         reward, next_state = step_fnc(action)
 
         self.Q[(state, action)] += self.lr * (reward + self.gamma * self.Q[(next_state, action)])
-
 
 import itertools
 from collections import Counter
@@ -102,8 +104,8 @@ alpha = 1e-3 #learning rate
 gamma = 0.4 #discount factor
 epsilon = 1 #explor/exploit control
 
-nbr_episode = 100
-epochs = 100
+nbr_episode = 1000
+agent_epochs = 10000
 
 #CLEANUP
 del ch3,ch4,left_ch,right_ch,ch_depth_2, ch_depth_3, ch_depth_4
@@ -145,23 +147,23 @@ def jump_to_state(state, action):
     return list(states_info.keys())[list(states_info.values()).index(target)]
 
 DEBUG = 2
-
-
-
+states_info = qinfo_encode(states)
+actions_info =  qinfo_encode(actions)
 
 if DEBUG == 2:
-    states_info = qinfo_encode(states)
-    actions_info =  qinfo_encode(actions)
+
     exclude = [38, 88, 89, 92, 100, 104]
     subjs = [s for s in range(1,30 + 1) if s not in exclude]
     #Task 1 and 2, MI vs MM of left and righht fist
     runs = [3,4, 7,8, 13,14]
-    raws = load_data(subjs, runs, max_duration = 120)
-    x,y = epochs(raws)
-    y = to_one_hot(y[:,-1])
+    raw = load_data(subjs, runs, max_duration = 120)
 
+    x,y = epochs(raw)
+    x = normalize(x)
+    y = to_one_hot(y[:,-1])
+    print(x.shape, y.shape)
     try:
-        x_train, x_val, y_train, y_val = train_test_split(raws, y, test_size=.2, stratify=y, random_state=42)
+        x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=.2, stratify=y, random_state=42)
         print(x_train.shape, y_train.shape, x_val.shape, y_val.shape)
     except ValueError as e:
         print(e)
@@ -176,23 +178,25 @@ if DEBUG == 2:
         device = tf.test.gpu_device_name()
     else:
         device = 'CPU:0'
-            
-    for i in range(epochs):
+
+    episode_reward = np.zeros(agent_epochs)
+        # reward_trajectory = []
+    episode_chs = []            
+    for i in range(agent_epochs):
         done = False
         total_reward = 0
-        episode_reward = np.zeros(epochs)
-        reward_trajectory = []
 
         #reset env, randomly select first channel (state 0-5)
         state_index = np.random.randint(0, 6)
         state = qinfo_decode(state_index, states_info)
         
+        print("Training on epochs", i)
         while not done:
             
             if np.random.uniform(0, 1) < epsilon:
                 action_index = np.random.randint(0, 6)
             else:
-                action_index = np.argmax(q[state])
+                action_index = np.argmax(q[state_index])
             action = actions_info[action_index]
             # Take action ----------------------------------------------------------
             
@@ -207,8 +211,8 @@ if DEBUG == 2:
                 reward = 0
                 
                 #extract data
-                if 0 <= state_index <= 6:
-                   target_ch = get_ch_location((state, action))
+                if 0 <= state_index < 6:
+                    target_ch = get_ch_location((state, action))
                 else: 
                     target_ch = get_ch_location((*state, action))
                 temp_x_train = extract_target_ch(x_train, target_ch)
@@ -216,21 +220,18 @@ if DEBUG == 2:
                 
                 # print(temp_x_train.shape, y_train.shape, temp_x_val.shape, y_val.shape)
                 
-                
-                break
                 with tf.device(device):
                     opt = tf.keras.optimizers.Adam(learning_rate = 1e-3)
                     loss = tf.keras.losses.CategoricalCrossentropy()
-                    model = Custom1DCNN(inp_shape=(temp_x_train.shape[1], temp_x_train.shape[2]), nbr_classes=y_train.shape[1])
+                    model = Custom1DCNN(inp_shape=(temp_x_train.shape[1], temp_x_train.shape[2]), output_classes=y_train.shape[1])
                     model.compile(optimizer = opt, loss=loss , metrics=['accuracy'])
                     hist = model.fit(temp_x_train, y_train, 
-                                     batch_size= 64, epochs = 50, verbose = False, 
+                                     batch_size= 128, epochs = 50, verbose = False, 
                                      validation_data = (temp_x_val,y_val))
-                    testLoss, testAcc = model.evaluate(x_val, y_val)
+                    testLoss, testAcc = model.evaluate(temp_x_val, y_val)
                 
                 #get reward and next state after performing an action
                 reward = testAcc
-                episode_reward[i] += reward
                 #decode next
                 next_state = jump_to_state(state, action) 
                 
@@ -240,18 +241,19 @@ if DEBUG == 2:
                 
                 max_val = np.max(q[next_state])
                 new_q  = (1 - alpha) * q_value + alpha * (reward + gamma * max_val)
-                q[state, action] = new_q
+                q[state_index, action_index] = new_q
                 
                 state = states_info[next_state]
                 state_index = next_state
                 
-            
+                episode_reward[i] += reward
             #decay the epsilon
             if epsilon > 0.01:
                 epsilon *= learning_decay
             else:
                 epsilon = epsilon
             # Done taking action ----------------------------------------------------------
-
+        episode_chs.append(state)
+        print('accumulate reward of epochs {} with following chs <{}> is {}'.format(i, episode_chs[i], episode_reward[i]))
 np.save('episode_reward',episode_reward)
 np.save('qtable', q)
